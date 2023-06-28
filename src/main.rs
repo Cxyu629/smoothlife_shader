@@ -62,10 +62,6 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2dBundle::default());
 
     commands.insert_resource(GameOfLifeImage(image));
-
-    commands.insert_resource(Params {
-        random_float: rand::random(),
-    })
 }
 
 pub struct GameOfLifeComputePlugin;
@@ -75,10 +71,23 @@ impl Plugin for GameOfLifeComputePlugin {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
         app.add_plugin(ExtractResourcePlugin::<GameOfLifeImage>::default());
-        app.add_plugin(ExtractResourcePlugin::<Params>::default());
+        // app.add_plugin(ExtractResourcePlugin::<Params>::default());
         let render_app = app.sub_app_mut(RenderApp);
+        let render_device = render_app.world.resource::<RenderDevice>();
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: None,
+            size: std::mem::size_of::<Params>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         render_app
             .init_resource::<GameOfLifePipeline>()
+            .insert_resource(Params {
+                random_float: rand::random(),
+            })
+            .insert_resource(ParamsMeta {
+                buffer,
+            })
             .add_system(prepare_params.in_set(RenderSet::Prepare))
             .add_system(queue_bind_group.in_set(RenderSet::Queue));
 
@@ -94,7 +103,7 @@ impl Plugin for GameOfLifeComputePlugin {
 #[derive(Resource, Clone, Deref, ExtractResource)]
 struct GameOfLifeImage(Handle<Image>);
 
-#[derive(Resource, Clone, Deref, ExtractResource)]
+#[derive(Resource)]
 struct Params {
     random_float: f32,
 }
@@ -112,7 +121,11 @@ fn prepare_params(
     params_meta: ResMut<ParamsMeta>,
     render_queue: Res<RenderQueue>,
 ) {
-    render_queue.write_buffer(&params_meta.buffer, 0, bevy::core::cast_slice(&[params]));
+    render_queue.write_buffer(
+        &params_meta.buffer,
+        0,
+        bevy::core::cast_slice(&[params.random_float]),
+    );
 }
 
 fn queue_bind_group(
