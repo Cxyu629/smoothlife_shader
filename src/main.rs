@@ -10,7 +10,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_graph::{self, RenderGraph},
         render_resource::*,
-        renderer::{RenderContext, RenderDevice},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
         RenderApp, RenderSet,
     },
     window::WindowPlugin,
@@ -40,7 +40,7 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut image = Image::new_fill(
         Extent3d {
             width: SIZE.0,
-            height: SIZE.1, 
+            height: SIZE.1,
             depth_or_array_layers: 1,
         },
         TextureDimension::D2,
@@ -62,6 +62,10 @@ fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     commands.spawn(Camera2dBundle::default());
 
     commands.insert_resource(GameOfLifeImage(image));
+
+    commands.insert_resource(Params {
+        random_float: rand::random(),
+    })
 }
 
 pub struct GameOfLifeComputePlugin;
@@ -71,9 +75,11 @@ impl Plugin for GameOfLifeComputePlugin {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
         app.add_plugin(ExtractResourcePlugin::<GameOfLifeImage>::default());
+        app.add_plugin(ExtractResourcePlugin::<Params>::default());
         let render_app = app.sub_app_mut(RenderApp);
         render_app
             .init_resource::<GameOfLifePipeline>()
+            .add_system(prepare_params.in_set(RenderSet::Prepare))
             .add_system(queue_bind_group.in_set(RenderSet::Queue));
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -88,8 +94,26 @@ impl Plugin for GameOfLifeComputePlugin {
 #[derive(Resource, Clone, Deref, ExtractResource)]
 struct GameOfLifeImage(Handle<Image>);
 
+#[derive(Resource, Clone, Deref, ExtractResource)]
+struct Params {
+    random_float: f32,
+}
+
+#[derive(Resource)]
+struct ParamsMeta {
+    buffer: Buffer,
+}
+
 #[derive(Resource)]
 struct GameOfLifeImageBindGroup(BindGroup);
+
+fn prepare_params(
+    params: Res<Params>,
+    params_meta: ResMut<ParamsMeta>,
+    render_queue: Res<RenderQueue>,
+) {
+    render_queue.write_buffer(&params_meta.buffer, 0, bevy::core::cast_slice(&[params]));
+}
 
 fn queue_bind_group(
     mut commands: Commands,
@@ -97,15 +121,22 @@ fn queue_bind_group(
     gpu_images: Res<RenderAssets<Image>>,
     game_of_life_image: Res<GameOfLifeImage>,
     render_device: Res<RenderDevice>,
+    params_meta: ResMut<ParamsMeta>,
 ) {
     let view = &gpu_images[&game_of_life_image.0];
     let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
         label: None,
         layout: &pipeline.texture_bind_group_layout,
-        entries: &[BindGroupEntry {
-            binding: 0,
-            resource: BindingResource::TextureView(&view.texture_view),
-        }],
+        entries: &[
+            BindGroupEntry {
+                binding: 0,
+                resource: BindingResource::TextureView(&view.texture_view),
+            },
+            BindGroupEntry {
+                binding: 1,
+                resource: params_meta.buffer.as_entire_binding(),
+            },
+        ],
     });
     commands.insert_resource(GameOfLifeImageBindGroup(bind_group));
 }
@@ -124,20 +155,32 @@ impl FromWorld for GameOfLifePipeline {
                 .resource::<RenderDevice>()
                 .create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: None,
-                    entries: &[BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: ShaderStages::COMPUTE,
-                        ty: BindingType::StorageTexture {
-                            access: StorageTextureAccess::ReadWrite,
-                            format: TextureFormat::Rgba8Unorm,
-                            view_dimension: TextureViewDimension::D2,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::StorageTexture {
+                                access: StorageTextureAccess::ReadWrite,
+                                format: TextureFormat::Rgba8Unorm,
+                                view_dimension: TextureViewDimension::D2,
+                            },
+                            count: None,
                         },
-                        count: None,
-                    }],
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: BufferSize::new(
+                                    std::mem::size_of::<Params>() as u64
+                                ),
+                            },
+                            count: None,
+                        },
+                    ],
                 });
-        let shader = world
-            .resource::<AssetServer>()
-            .load("smoothlife.wgsl");
+        let shader = world.resource::<AssetServer>().load("smoothlife.wgsl");
         let pipeline_cache = world.resource::<PipelineCache>();
         let init_pipeline = pipeline_cache.queue_compute_pipeline(ComputePipelineDescriptor {
             label: None,
