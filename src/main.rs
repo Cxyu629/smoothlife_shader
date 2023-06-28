@@ -74,21 +74,16 @@ impl Plugin for GameOfLifeComputePlugin {
         // app.add_plugin(ExtractResourcePlugin::<Params>::default());
         let render_app = app.sub_app_mut(RenderApp);
         let render_device = render_app.world.resource::<RenderDevice>();
-        let buffer = render_device.create_buffer(&BufferDescriptor {
+        let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
             label: None,
-            size: std::mem::size_of::<Params>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+            contents: bevy::core::cast_slice(&[rand::random::<f32>()]),
         });
         render_app
             .init_resource::<GameOfLifePipeline>()
-            .insert_resource(Params {
-                random_float: rand::random(),
-            })
             .insert_resource(ParamsMeta {
                 buffer,
             })
-            .add_system(prepare_params.in_set(RenderSet::Prepare))
             .add_system(queue_bind_group.in_set(RenderSet::Queue));
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -103,10 +98,6 @@ impl Plugin for GameOfLifeComputePlugin {
 #[derive(Resource, Clone, Deref, ExtractResource)]
 struct GameOfLifeImage(Handle<Image>);
 
-#[derive(Resource)]
-struct Params {
-    random_float: f32,
-}
 
 #[derive(Resource)]
 struct ParamsMeta {
@@ -116,17 +107,6 @@ struct ParamsMeta {
 #[derive(Resource)]
 struct GameOfLifeImageBindGroup(BindGroup);
 
-fn prepare_params(
-    params: Res<Params>,
-    params_meta: ResMut<ParamsMeta>,
-    render_queue: Res<RenderQueue>,
-) {
-    render_queue.write_buffer(
-        &params_meta.buffer,
-        0,
-        bevy::core::cast_slice(&[params.random_float]),
-    );
-}
 
 fn queue_bind_group(
     mut commands: Commands,
@@ -186,7 +166,7 @@ impl FromWorld for GameOfLifePipeline {
                                 ty: BufferBindingType::Uniform,
                                 has_dynamic_offset: false,
                                 min_binding_size: BufferSize::new(
-                                    std::mem::size_of::<Params>() as u64
+                                    std::mem::size_of::<f32>() as u64
                                 ),
                             },
                             count: None,
