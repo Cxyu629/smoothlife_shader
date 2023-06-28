@@ -10,7 +10,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_graph::{self, RenderGraph},
         render_resource::*,
-        renderer::{RenderContext, RenderDevice, RenderQueue},
+        renderer::{RenderContext, RenderDevice},
         RenderApp, RenderSet,
     },
     window::WindowPlugin,
@@ -71,7 +71,6 @@ impl Plugin for GameOfLifeComputePlugin {
         // Extract the game of life image resource from the main world into the render world
         // for operation on by the compute shader and display on the sprite.
         app.add_plugin(ExtractResourcePlugin::<GameOfLifeImage>::default());
-        // app.add_plugin(ExtractResourcePlugin::<Params>::default());
         let render_app = app.sub_app_mut(RenderApp);
         let render_device = render_app.world.resource::<RenderDevice>();
         let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
