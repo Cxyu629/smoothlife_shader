@@ -3,12 +3,20 @@ var texture: texture_storage_2d<rgba8unorm, read_write>;
 
 struct Params {
     random_float: f32,
+    outer_kernel_area: f32,
+    inner_kernel_area: f32,
 }
 
 @group(0) @binding(1)
 var <uniform> params: Params;
 
-// @group(0) @binding(1) var random_seed: f32;
+@group(0) @binding(2)
+var outer_texture: texture_storage_2d<rgba8unorm, read>;
+
+@group(0) @binding(3)
+var inner_texture: texture_storage_2d<rgba8unorm, read>;
+
+
 
 fn hash(value: u32) -> u32 {
     var state = value;
@@ -195,49 +203,18 @@ fn wrap(coords: vec2<i32>) -> vec2<i32> {
     return vec2<i32>(i32(fract(f32(coords.x) / f32(dimensions.x)) * f32(dimensions.x)), i32(fract(f32(coords.y) / f32(dimensions.y)) * f32(dimensions.y)));
 }
 
-fn calculate_m(location: vec2<i32>) -> f32 {
+
+fn calculate_with_texture(location: vec2<i32>, the_texture: texture_storage_2d<rgba8unorm, read>, the_area: f32, radius: f32) -> f32 {
     var sum: f32 = 0.0;
-    var area: f32 = 0.0;
-    for (var dx: f32 = -ri-b; dx <= ri+b; dx += 1.0) {
-        for (var dy: f32 = -ri-b; dy <= ri+b; dy += 1.0) {
-            let l = length(vec2(dx, dy));
-            if (l < (ri - b/2.0)) {
-                area += 1.0;
-                sum += textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
-            } else if (l <= (ri + b/2.0)) {
-                let weight = (ri + b/2.0 - l) / b;
-                area += weight;
-                sum += weight * textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
-            } 
+    for (var dx: f32 = -radius; dx <= radius; dx += 1.0) {
+        for (var dy: f32 = -radius; dy <= radius; dy += 1.0) {
+            let weight = textureLoad(the_texture, wrap(vec2<i32>(i32(radius)) + vec2<i32>(i32(dx), i32(dy)))).x;
+            let value = textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
+            sum += value * weight;
         }
     }
 
-    return sum / area;
-}
-
-fn calculate_n(location: vec2<i32>) -> f32 {
-    var sum: f32 = 0.0;
-    var area: f32 = 0.0;
-    for (var dx: f32 = -ra-b; dx <= ra+b; dx += 1.0) {
-        for (var dy: f32 = -ra-b; dy <= ra+b; dy += 1.0) {
-            let l = length(vec2(dx, dy));
-            if (l <= (ri - b/2.0)) {}
-            else if (l < (ri + b/2.0)) {
-                let weight = (l - ri + b/2.0) / b;
-                area += weight;
-                sum += weight * textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
-            } else if (l < (ra - b/2.0)) {
-                area += 1.0;
-                sum += textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
-            }  else if (l <= (ra + b/2.0)) {
-                let weight = (ra + b/2.0 - l) / b;
-                area += weight;
-                sum += weight * textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
-            } 
-        }
-    }
-
-    return sum / area;
+    return sum / the_area;
 }
 
 fn logistic_threshold(x: f32, x0: f32, alpha: f32) -> f32 {
@@ -270,47 +247,13 @@ fn clamp(x: f32, low: f32, high: f32) -> f32 {
     return x;
 }
 
-fn is_alive(location: vec2<i32>, offset_x: i32, offset_y: i32) -> i32 {
-    let dimensions: vec2<i32> = textureDimensions(texture);
-    let sum = (location + vec2<i32>(offset_x, offset_y));
-    let new_location: vec2<i32> = vec2<i32>(i32(fract(f32(sum.x) / f32(dimensions.x)) * f32(dimensions.x)), i32(fract(f32(sum.y) / f32(dimensions.y)) * f32(dimensions.y)));
-    let value: vec4<f32> = textureLoad(texture, new_location);
-    return i32(value.x);
-}
-
-fn count_alive(location: vec2<i32>) -> i32 {
-    return is_alive(location, -1, -1) +
-           is_alive(location, -1,  0) +
-           is_alive(location, -1,  1) +
-           is_alive(location,  0, -1) +
-           is_alive(location,  0,  1) +
-           is_alive(location,  1, -1) +
-           is_alive(location,  1,  0) +
-           is_alive(location,  1,  1);
-}
-
 @compute @workgroup_size(8, 8, 1)
 fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let location = vec2<i32>(i32(invocation_id.x), i32(invocation_id.y));
 
 
-    // let n_alive = count_alive(location);
-
-    // var alive: bool;
-    // if (n_alive == 3) {
-    //     alive = true;
-    // } else if (n_alive == 2) {
-    //     let currently_alive = is_alive(location, 0, 0);
-    //     alive = bool(currently_alive);
-    // } else {
-    //     alive = false;
-    // }
-
-    // let color = vec4<f32>(f32(alive));
-
-
-    let m = calculate_m(location);
-    let n = calculate_n(location);
+    let m = calculate_with_texture(location, inner_texture, params.inner_kernel_area, ri+b);
+    let n = calculate_with_texture(location, outer_texture, params.outer_kernel_area, ra+b);
 
     let current = clamp(textureLoad(texture, location).x, 0.0, 1.0);
 
