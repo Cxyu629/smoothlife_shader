@@ -11,7 +11,7 @@ use bevy::{
         RenderApp, RenderSet,
     },
 };
-use bytemuck::cast_slice;
+use bytemuck::{cast_slice, NoUninit};
 
 use crate::{SIZE, WORKGROUP_SIZE};
 
@@ -76,17 +76,14 @@ impl FromWorld for GOLParamsMeta {
         render_queue.write_buffer(
             &buffer,
             0,
-            cast_slice(&[
-                gol_params.random_float,
-                gol_params.outer_kernel_area,
-                gol_params.inner_kernel_area,
-            ]),
+            cast_slice(&[gol_params]),
         );
         GOLParamsMeta { buffer }
     }
 }
 
-#[derive(Resource, Clone, Copy, Debug)]
+#[repr(C)]
+#[derive(Resource, Clone, Copy, Debug, NoUninit)]
 pub struct GOLParams {
     pub random_float: f32,
     pub outer_kernel_area: f32,
