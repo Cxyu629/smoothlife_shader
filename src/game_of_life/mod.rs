@@ -1,8 +1,24 @@
-use std::num::NonZeroU32;
+use std::borrow::Cow;
 
-use bevy::render::renderer::RenderQueue;
+use bevy::{
+    prelude::*,
+    render::{
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
+        render_asset::RenderAssets,
+        render_graph::{RenderGraph, self},
+        render_resource::*,
+        renderer::{RenderDevice, RenderQueue, RenderContext},
+        RenderApp, RenderSet,
+    },
+};
+use bytemuck::cast_slice;
 
-use crate::*;
+use crate::{SIZE, WORKGROUP_SIZE};
+
+use self::kernel::{GOLKernelData, GOLKernelPlugin};
+
+mod kernel;
+
 pub struct GameOfLifeComputePlugin;
 
 impl Plugin for GameOfLifeComputePlugin {
@@ -14,124 +30,11 @@ impl Plugin for GameOfLifeComputePlugin {
 
         // Dealing with kernels is so fussy smh.
 
-        let kernels = GOLKernels {
-            outer_kernel: Kernel::from_descriptor(KernelDescriptor::Ring {
-                outer_radius: 21.0,
-                inner_radius: 7.0,
-                antialias_width: 1.0,
-            }),
-            inner_kernel: Kernel::from_descriptor(KernelDescriptor::Circle {
-                radius: 7.0,
-                antialias_width: 1.0,
-            }),
-        };
-
-        kernels.outer_kernel.save_to("smoothlife_shader/assets/outer_kernel.png");
-        kernels.inner_kernel.save_to("smoothlife_shader/assets/inner_kernel.png");
-
-        let render_device = render_app.world.get_resource_mut::<RenderDevice>().unwrap();
-
-        // kernel_data.outer_kernel.save_to("smoothlife_shader/assets/outer_kernel.png");
-        let outer_kernel = kernels.outer_kernel.image;
-        let inner_kernel = kernels.inner_kernel.image;
-
-        let gol_params = GOLParams {
-            random_float: rand::random::<f32>(),
-            outer_kernel_area: kernels.outer_kernel.area,
-            inner_kernel_area: kernels.inner_kernel.area,
-        };
-
-        let params = [
-            gol_params.random_float,
-            gol_params.outer_kernel_area,
-            gol_params.inner_kernel_area,
-        ];
-
-        let buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
-            label: None,
-            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
-            contents: bevy::core::cast_slice(&params),
-        });
-
-        let outer_size = Extent3d {
-            width: outer_kernel.width(),
-            height: outer_kernel.height(),
-            depth_or_array_layers: 1,
-        };
-
-        let inner_size = Extent3d {
-            width: inner_kernel.width(),
-            height: inner_kernel.height(),
-            depth_or_array_layers: 1,
-        };
-
-        let outer_texture = render_device.create_texture(&TextureDescriptor {
-            label: None,
-            size: outer_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        });
-
-        let inner_texture = render_device.create_texture(&TextureDescriptor {
-            label: None,
-            size: inner_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba8Unorm,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::STORAGE_BINDING,
-            view_formats: &[],
-        });
-
-        let render_queue = render_app.world.resource::<RenderQueue>();
-        render_queue.write_texture(
-            ImageCopyTexture {
-                texture: &outer_texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            &outer_kernel.to_rgba8(),
-            ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * outer_kernel.width()),
-                rows_per_image: NonZeroU32::new(outer_kernel.height()),
-            },
-            outer_size,
-        );
-
-        render_queue.write_texture(
-            ImageCopyTexture {
-                texture: &inner_texture,
-                mip_level: 0,
-                origin: Origin3d::ZERO,
-                aspect: TextureAspect::All,
-            },
-            &outer_kernel.to_rgba8(),
-            ImageDataLayout {
-                offset: 0,
-                bytes_per_row: NonZeroU32::new(4 * outer_kernel.width()),
-                rows_per_image: NonZeroU32::new(outer_kernel.height()),
-            },
-            inner_size,
-        );
-
-        let outer_texture_view = outer_texture.create_view(&TextureViewDescriptor::default());
-        let inner_texture_view = inner_texture.create_view(&TextureViewDescriptor::default());
-
-        render_app.insert_resource(GOLKernelTexture {
-            outer_texture_view,
-            inner_texture_view,
-        });
-
-        render_app.insert_resource(GOLParamsMeta { buffer });
+        render_app.add_plugin(GOLKernelPlugin);
 
         render_app
             .init_resource::<GameOfLifePipeline>()
+            .init_resource::<GOLParamsMeta>()
             .add_system(queue_bind_group.in_set(RenderSet::Queue));
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -157,7 +60,37 @@ pub struct GOLParamsMeta {
     pub buffer: Buffer,
 }
 
-#[derive(Resource)]
+impl FromWorld for GOLParamsMeta {
+    fn from_world(world: &mut World) -> Self {
+        let render_device = world.resource::<RenderDevice>();
+        let buffer = render_device.create_buffer(&BufferDescriptor {
+            label: None,
+            size: 3 * std::mem::size_of::<f32>() as u64,
+            usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+
+        let render_queue = world.resource::<RenderQueue>();
+        let kernel_data = world.resource::<GOLKernelData>();
+        let gol_params = GOLParams {
+            random_float: rand::random::<f32>(),
+            outer_kernel_area: kernel_data.outer_kernel_area,
+            inner_kernel_area: kernel_data.inner_kernel_area,
+        };
+        render_queue.write_buffer(
+            &buffer,
+            0,
+            cast_slice(&[
+                gol_params.random_float,
+                gol_params.outer_kernel_area,
+                gol_params.inner_kernel_area,
+            ]),
+        );
+        GOLParamsMeta { buffer }
+    }
+}
+
+#[derive(Resource, Clone, Copy, Debug)]
 pub struct GOLParams {
     pub random_float: f32,
     pub outer_kernel_area: f32,

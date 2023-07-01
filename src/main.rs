@@ -5,23 +5,13 @@
 
 use bevy::{
     prelude::*,
-    render::{
-        extract_resource::{ExtractResource, ExtractResourcePlugin},
-        render_asset::RenderAssets,
-        render_graph::{self, RenderGraph},
-        render_resource::*,
-        renderer::{RenderContext, RenderDevice},
-        RenderApp, RenderSet,
-    },
+    render::{render_resource::*, renderer::RenderDevice},
     window::WindowPlugin,
 };
 use image::{Rgba, RgbaImage};
-use std::borrow::Cow;
 
-mod compute;
-mod kernel;
-use compute::*;
-use kernel::{GOLKernels, Kernel, KernelDescriptor};
+mod game_of_life;
+use game_of_life::*;
 
 const SIZE: (u32, u32) = (1280, 720);
 const WORKGROUP_SIZE: u32 = 8;
@@ -42,11 +32,7 @@ fn main() {
         .run();
 }
 
-
-fn setup(
-    mut commands: Commands,
-    mut images: ResMut<Assets<Image>>,
-) {
+fn setup(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
     let mut image = Image::new_fill(
         Extent3d {
             width: SIZE.0,
@@ -72,8 +58,4 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     commands.insert_resource(GameOfLifeImage(image));
-
-
-
-
 }
