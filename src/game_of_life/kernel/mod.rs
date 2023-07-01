@@ -145,6 +145,12 @@ pub struct GOLKernelData {
     pub inner_kernel_area: f32,
 }
 
+#[derive(Resource)]
+pub struct GOLKernelTexture {
+    pub outer_texture_view: TextureView,
+    pub inner_texture_view: TextureView,
+}
+
 pub struct Kernel {
     pub image: DynamicImage,
     pub area: f32,

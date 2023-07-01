@@ -15,7 +15,7 @@ use bytemuck::cast_slice;
 
 use crate::{SIZE, WORKGROUP_SIZE};
 
-use self::kernel::{GOLKernelData, GOLKernelPlugin};
+use self::kernel::{GOLKernelData, GOLKernelPlugin, GOLKernelTexture};
 
 mod kernel;
 
@@ -49,11 +49,7 @@ impl Plugin for GameOfLifeComputePlugin {
 #[derive(Resource, Clone, Deref, ExtractResource)]
 pub struct GameOfLifeImage(pub Handle<Image>);
 
-#[derive(Resource)]
-pub struct GOLKernelTexture {
-    pub outer_texture_view: TextureView,
-    pub inner_texture_view: TextureView,
-}
+
 
 #[derive(Resource)]
 pub struct GOLParamsMeta {
