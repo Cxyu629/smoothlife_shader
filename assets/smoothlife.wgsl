@@ -5,6 +5,7 @@ struct Params {
     random_float: f32,
     outer_kernel_area: f32,
     inner_kernel_area: f32,
+    timestep: f32,
 }
 
 @group(0) @binding(1)
@@ -97,10 +98,6 @@ fn perlinNoise3(P: vec3<f32>) -> f32 {
 fn init(@builtin(global_invocation_id) invocation_id: vec3<u32>, @builtin(num_workgroups) num_workgroups: vec3<u32>) {
     let location = vec2<i32>(i32(invocation_id.x), i32(invocation_id.y));
 
-    let random_number = randomFloat(invocation_id.y * num_workgroups.x + invocation_id.x);
-    let alive = random_number > 0.75;
-    // let color = vec4<f32>(circle(vec2<f32>(f32(invocation_id.x), f32(invocation_id.y)), 25.0));
-
     let zoom = 30.0;
     
     let color = vec4<f32>(perlinNoise3(vec3<f32>(f32(invocation_id.x)/zoom, f32(invocation_id.y)/zoom, params.random_float)));
@@ -118,25 +115,25 @@ const d2: f32 = 0.445;
 const an: f32 = 0.028;
 const am: f32 = 0.147;
 const b: f32 = 1.0;
-const timestep: f32 = 0.1;
+const rate: f32 = 1.0;
 
 fn wrap(coords: vec2<i32>) -> vec2<i32> {
     let dimensions: vec2<i32> = textureDimensions(texture);
-    return vec2<i32>(i32(fract(f32(coords.x) / f32(dimensions.x)) * f32(dimensions.x)), i32(fract(f32(coords.y) / f32(dimensions.y)) * f32(dimensions.y)));
+    return vec2<i32>(fract(vec2<f32>(coords) / vec2<f32>(dimensions)) * vec2<f32>(dimensions));
 }
 
 
-fn calculate_with_texture(location: vec2<i32>, the_texture: texture_storage_2d<rgba8unorm, read>, the_area: f32, radius: f32) -> f32 {
-    var sum: f32 = 0.0;
+fn calculate_with_texture(location: vec2<i32>, the_texture: texture_storage_2d<rgba8unorm, read>, the_area: f32, radius: f32) -> vec4<f32> {
+    var sum: vec4<f32> = vec4(0.0);
     for (var dx: f32 = -radius; dx <= radius; dx += 1.0) {
         for (var dy: f32 = -radius; dy <= radius; dy += 1.0) {
-            let weight = textureLoad(the_texture, wrap(vec2<i32>(i32(radius)) + vec2<i32>(i32(dx), i32(dy)))).x;
-            let value = textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy)))).x;
+            let weight = textureLoad(the_texture, wrap(vec2<i32>(i32(radius)) + vec2<i32>(i32(dx), i32(dy))));
+            let value = textureLoad(texture, wrap(location + vec2<i32>(i32(dx), i32(dy))));
             sum += value * weight;
         }
     }
 
-    return sum / the_area;
+    return sum / vec4(the_area);
 }
 
 fn logistic_threshold(x: f32, x0: f32, alpha: f32) -> f32 {
@@ -167,13 +164,17 @@ fn new_s(n: f32, m: f32) -> f32 {
 fn update(@builtin(global_invocation_id) invocation_id: vec3<u32>) {
     let location = vec2<i32>(i32(invocation_id.x), i32(invocation_id.y));
 
+    let current = textureLoad(texture, location).x;
+
 
     let m = calculate_with_texture(location, inner_texture, params.inner_kernel_area, ri+b);
     let n = calculate_with_texture(location, outer_texture, params.outer_kernel_area, ra+b);
 
-    let current = clamp(textureLoad(texture, location).x, 0.0, 1.0);
+    let growth = 2.0 * new_s(n.x,m.x) - 1.0;
 
-    let color = vec4<f32>( current + timestep * (2.0 * clamp(new_s(n,m), 0.0, 1.0) - 1.0));
+
+    var color = vec4<f32>(current + params.timestep * rate * growth);
+    color = clamp(color, vec4(0.0), vec4(1.0));
 
     storageBarrier();
 

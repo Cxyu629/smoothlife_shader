@@ -35,6 +35,7 @@ impl Plugin for GameOfLifeComputePlugin {
         render_app
             .init_resource::<GameOfLifePipeline>()
             .init_resource::<GOLParamsMeta>()
+            .add_system(prepare_params.in_set(RenderSet::Prepare))
             .add_system(queue_bind_group.in_set(RenderSet::Queue));
 
         let mut render_graph = render_app.world.resource_mut::<RenderGraph>();
@@ -49,7 +50,25 @@ impl Plugin for GameOfLifeComputePlugin {
 #[derive(Resource, Clone, Deref, ExtractResource)]
 pub struct GameOfLifeImage(pub Handle<Image>);
 
+fn prepare_params(
+    render_queue: Res<RenderQueue>,
+    params_meta: ResMut<GOLParamsMeta>,
+    kernel_data: Res<GOLKernelData>,
+    time: Res<Time>
+) {
+    let gol_params = GOLParams {
+        random_float: rand::random::<f32>(),
+        outer_kernel_area: kernel_data.outer_kernel_area,
+        inner_kernel_area: kernel_data.inner_kernel_area,
+        timestep: time.delta_seconds(),
+    };
 
+    render_queue.write_buffer(
+        &params_meta.buffer,
+        0,
+        cast_slice(&[gol_params])
+    );
+}
 
 #[derive(Resource)]
 pub struct GOLParamsMeta {
@@ -61,23 +80,10 @@ impl FromWorld for GOLParamsMeta {
         let render_device = world.resource::<RenderDevice>();
         let buffer = render_device.create_buffer(&BufferDescriptor {
             label: None,
-            size: 3 * std::mem::size_of::<f32>() as u64,
+            size: 4 * std::mem::size_of::<f32>() as u64,
             usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-
-        let render_queue = world.resource::<RenderQueue>();
-        let kernel_data = world.resource::<GOLKernelData>();
-        let gol_params = GOLParams {
-            random_float: rand::random::<f32>(),
-            outer_kernel_area: kernel_data.outer_kernel_area,
-            inner_kernel_area: kernel_data.inner_kernel_area,
-        };
-        render_queue.write_buffer(
-            &buffer,
-            0,
-            cast_slice(&[gol_params]),
-        );
         GOLParamsMeta { buffer }
     }
 }
@@ -88,6 +94,7 @@ pub struct GOLParams {
     pub random_float: f32,
     pub outer_kernel_area: f32,
     pub inner_kernel_area: f32,
+    pub timestep: f32,
 }
 
 #[derive(Resource)]
@@ -160,7 +167,7 @@ impl FromWorld for GameOfLifePipeline {
                                 ty: BufferBindingType::Uniform,
                                 has_dynamic_offset: false,
                                 min_binding_size: BufferSize::new(
-                                    3 * std::mem::size_of::<f32>() as u64,
+                                    4 * std::mem::size_of::<f32>() as u64,
                                 ),
                             },
                             count: None,
