@@ -5,7 +5,7 @@ use image::{DynamicImage, ImageResult};
 
 use crate::*;
 
-use self::utils::linear_from_points;
+use self::utils::lerp;
 
 mod utils;
 
@@ -45,17 +45,16 @@ impl Plugin for GOLKernelPlugin {
 
         app.insert_resource(kernel_data);
 
-        
         // kernel_data.outer_kernel.save_to("smoothlife_shader/assets/outer_kernel.png");
         let outer_kernel = kernels.outer_kernel.image;
         let inner_kernel = kernels.inner_kernel.image;
-        
+
         let outer_size = Extent3d {
             width: outer_kernel.width(),
             height: outer_kernel.height(),
             depth_or_array_layers: 1,
         };
-        
+
         let inner_size = Extent3d {
             width: inner_kernel.width(),
             height: inner_kernel.height(),
@@ -176,19 +175,12 @@ impl Kernel {
             KernelDescriptor::Circle {
                 radius: r,
                 antialias_width: b,
-            } => {
-                let functor = linear_from_points((r - b / 2.0, 1.0), (r + b / 2.0, 0.0));
-                functor(x).clamp(0.0, 1.0)
-            }
+            } => lerp(r + b / 2.0, r - b / 2.0, x),
             KernelDescriptor::Ring {
                 outer_radius: ro,
                 inner_radius: ri,
                 antialias_width: b,
-            } => {
-                let functor_left = linear_from_points((ri - b / 2.0, 0.0), (ri + b / 2.0, 1.0));
-                let functor_right = linear_from_points((ro - b / 2.0, 1.0), (ro + b / 2.0, 0.0));
-                functor_left(x).min(functor_right(x)).clamp(0.0, 1.0)
-            }
+            } => lerp(ri - b / 2.0, ri + b / 2.0, x).min(lerp(ro + b / 2.0, ro - b / 2.0, x)),
         };
 
         let mut area = 0f32;
