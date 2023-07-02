@@ -17,86 +17,8 @@ var outer_texture: texture_storage_2d<rgba8unorm, read>;
 var inner_texture: texture_storage_2d<rgba8unorm, read>;
 
 
-
-fn hash(value: u32) -> u32 {
-    var state = value;
-    state = state ^ 2747636419u;
-    state = state * 2654435769u;
-    state = state ^ (state >> 16u);
-    state = state * 2654435769u;
-    state = state ^ (state >> 16u);
-    state = state * 2654435769u;
-    return state;
-}
-
-fn randomFloat(value: u32) -> f32 {
-    return f32(hash(value)) / 4294967295.0;
-}
-
-fn rand(n: f32) -> f32 { return fract(sin(n) * 43758.5453123); }
-fn noise(p: f32) -> f32 {
-  let fl = floor(p);
-  let fc = fract(p);
-  return mix(rand(fl), rand(fl + 1.), fc);
-}
-
-fn rand2(n: vec2<f32>) -> f32 {
-  return fract(sin(dot(n, vec2<f32>(12.9898, 4.1414))) * 43758.5453);
-}
-
-fn noise2(n: vec2<f32>) -> f32 {
-  let d = vec2<f32>(0., 1.);
-  let b = floor(n);
-  let f = smoothstep(vec2<f32>(0.), vec2<f32>(1.), fract(n));
-  return mix(mix(rand2(b), rand2(b + d.yx), f.x), mix(rand2(b + d.xy), rand2(b + d.yy), f.x), f.y);
-}
-
-fn circle(n: vec2<f32>, size: f32) -> f32 {
-    if (length(n - vec2<f32>(size)) < size / 2.0) {
-        return 0.0;
-    } else if (length(n - vec2<f32>(size)) < size) {
-        return 1.0;
-    } else {
-        return 0.0;
-    }
-}
-
 fn permute4(x: vec4<f32>) -> vec4<f32> { return ((x * 34. + 1.) * x) % vec4<f32>(289.); }
 fn fade2(t: vec2<f32>) -> vec2<f32> { return t * t * t * (t * (t * 6. - 15.) + 10.); }
-
-fn perlinNoise2(P: vec2<f32>) -> f32 {
-    var Pi: vec4<f32> = floor(P.xyxy) + vec4<f32>(0., 0., 1., 1.);
-    let Pf = fract(P.xyxy) - vec4<f32>(0., 0., 1., 1.);
-    Pi = Pi % vec4<f32>(289.); // To avoid truncation effects in permutation
-    let ix = Pi.xzxz;
-    let iy = Pi.yyww;
-    let fx = Pf.xzxz;
-    let fy = Pf.yyww;
-    let i = permute4(permute4(ix) + iy);
-    var gx: vec4<f32> = 2. * fract(i * 0.0243902439) - 1.; // 1/41 = 0.024...
-    let gy = abs(gx) - 0.5;
-    let tx = floor(gx + 0.5);
-    gx = gx - tx;
-    var g00: vec2<f32> = vec2<f32>(gx.x, gy.x);
-    var g10: vec2<f32> = vec2<f32>(gx.y, gy.y);
-    var g01: vec2<f32> = vec2<f32>(gx.z, gy.z);
-    var g11: vec2<f32> = vec2<f32>(gx.w, gy.w);
-    let norm = 1.79284291400159 - 0.85373472095314 *
-        vec4<f32>(dot(g00, g00), dot(g01, g01), dot(g10, g10), dot(g11, g11));
-    g00 = g00 * norm.x;
-    g01 = g01 * norm.y;
-    g10 = g10 * norm.z;
-    g11 = g11 * norm.w;
-    let n00 = dot(g00, vec2<f32>(fx.x, fy.x));
-    let n10 = dot(g10, vec2<f32>(fx.y, fy.y));
-    let n01 = dot(g01, vec2<f32>(fx.z, fy.z));
-    let n11 = dot(g11, vec2<f32>(fx.w, fy.w));
-    let fade_xy = fade2(Pf.xy);
-    let n_x = mix(vec2<f32>(n00, n01), vec2<f32>(n10, n11), vec2<f32>(fade_xy.x));
-    let n_xy = mix(n_x.x, n_x.y, fade_xy.y);
-    return 2.3 * n_xy;
-}
-
 fn taylorInvSqrt4(r: vec4<f32>) -> vec4<f32> { return 1.79284291400159 - 0.85373472095314 * r; }
 fn fade3(t: vec3<f32>) -> vec3<f32> { return t * t * t * (t * (t * 6. - 15.) + 10.); }
 
@@ -239,12 +161,6 @@ fn new_s(n: f32, m: f32) -> f32 {
     let new_aliveness = logistic_interval(n, threshold1, threshold2, an);
 
     return clamp(new_aliveness, 0.0, 1.0);
-}
-
-fn clamp(x: f32, low: f32, high: f32) -> f32 {
-    if (x < low) {return low;}
-    if (x > high) {return high;}
-    return x;
 }
 
 @compute @workgroup_size(8, 8, 1)
